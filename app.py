@@ -151,13 +151,17 @@ def bygg_tre(categories: list[dict]) -> list[dict]:
     return out
 
 
-def _tre_on_change(state_key: str, val: str, cb_key: str) -> None:
-    s = set(st.session_state.get(state_key, []))
-    if st.session_state.get(cb_key):
-        s.add(val)
-    else:
-        s.discard(val)
-    st.session_state[state_key] = list(s)
+def _walk_tre(nodes: list[dict], state_key: str, ctr: int, path: str = ""):
+    """Yield (val, cb_key, has_children) for hver node i treet.
+    Brukes for å samle inn valg etter form-submit."""
+    for i, node in enumerate(nodes):
+        val = node["value"]
+        children = node.get("children")
+        node_path = f"{path}_{i}"
+        cb_key = f"treecb__{state_key}__{ctr}__{node_path}"
+        yield (val, cb_key, bool(children))
+        if children:
+            yield from _walk_tre(children, state_key, ctr, node_path)
 
 
 def render_tre_native(
@@ -169,33 +173,24 @@ def render_tre_native(
     path: str = "",
 ) -> None:
     """Native Streamlit-trevelger basert på expander + checkbox.
-    Bruker ingen iframe — følger app-tema automatisk."""
+    Designet for å være inni en st.form: ingen on_change-callbacks,
+    valg samles inn etter form-submit via _walk_tre."""
     valgt = set(st.session_state.get(state_key, []))
     for i, node in enumerate(nodes):
         val = node["value"]
         lbl = node["label"]
         children = node.get("children")
         node_path = f"{path}_{i}"
-        # ctr i nøkkelen tvinger remount når knapper resetter state
         cb_key = f"treecb__{state_key}__{ctr}__{node_path}"
+        # Init fra state_key kun første gang denne ctr-versjonen renderes
         if cb_key not in st.session_state:
             st.session_state[cb_key] = (val in valgt)
         if children:
             with st.expander(lbl, expanded=(level < default_open_depth)):
-                st.checkbox(
-                    f"✓ Velg «{lbl}»",
-                    key=cb_key,
-                    on_change=_tre_on_change,
-                    args=(state_key, val, cb_key),
-                )
+                st.checkbox(f"✓ Velg «{lbl}»", key=cb_key)
                 render_tre_native(children, state_key, ctr, default_open_depth, level + 1, node_path)
         else:
-            st.checkbox(
-                lbl,
-                key=cb_key,
-                on_change=_tre_on_change,
-                args=(state_key, val, cb_key),
-            )
+            st.checkbox(lbl, key=cb_key)
 
 
 def er_tids_dim(dim_label: str, dim_kode: str) -> bool:
@@ -553,12 +548,27 @@ with st.sidebar:
                           help="Velg første nivå (typisk hovedkategorier)")
 
                 tre = bygg_tre(dim["categories"])
-                render_tre_native(
-                    tre,
-                    state_key=state_key,
-                    ctr=st.session_state[ctr_key],
-                    default_open_depth=1,
-                )
+                ctr_val = st.session_state[ctr_key]
+                form_key = f"treeform_{state_key}_{ctr_val}"
+                with st.form(key=form_key, border=False, clear_on_submit=False):
+                    render_tre_native(
+                        tre,
+                        state_key=state_key,
+                        ctr=ctr_val,
+                        default_open_depth=1,
+                    )
+                    submitted = st.form_submit_button(
+                        "✓ Bruk valg",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                if submitted:
+                    valgte = [
+                        v for v, ck, _ in _walk_tre(tre, state_key, ctr_val)
+                        if st.session_state.get(ck)
+                    ]
+                    st.session_state[state_key] = valgte
+                    st.rerun()
                 st.caption(f"Valgt: {len(st.session_state.get(state_key, []))} av {len(all_values)}")
 
             else:
