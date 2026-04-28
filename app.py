@@ -136,59 +136,6 @@ def smart_default(dim_label: str, dim_kode: str, flat: list[tuple[str, str, int]
     return [format_label(*it) for it in flat if it[2] == 0][:15]
 
 
-def bygg_tre(categories: list[dict]) -> list[dict]:
-    """FHI-kategoritre → enkelt nested format {value, label, children}."""
-    out = []
-    for c in categories:
-        node = {"label": c["label"], "value": c["value"]}
-        if c.get("children"):
-            node["children"] = bygg_tre(c["children"])
-        out.append(node)
-    return out
-
-
-def _walk_tre(nodes: list[dict], state_key: str, ctr: int, path: str = ""):
-    """Yield (val, cb_key, has_children) for hver node i treet.
-    Brukes for å samle inn valg etter form-submit."""
-    for i, node in enumerate(nodes):
-        val = node["value"]
-        children = node.get("children")
-        node_path = f"{path}_{i}"
-        cb_key = f"treecb__{state_key}__{ctr}__{node_path}"
-        yield (val, cb_key, bool(children))
-        if children:
-            yield from _walk_tre(children, state_key, ctr, node_path)
-
-
-def render_tre_native(
-    nodes: list[dict],
-    state_key: str,
-    ctr: int,
-    default_open_depth: int = 1,
-    level: int = 0,
-    path: str = "",
-) -> None:
-    """Native Streamlit-trevelger basert på expander + checkbox.
-    Designet for å være inni en st.form: ingen on_change-callbacks,
-    valg samles inn etter form-submit via _walk_tre."""
-    valgt = set(st.session_state.get(state_key, []))
-    for i, node in enumerate(nodes):
-        val = node["value"]
-        lbl = node["label"]
-        children = node.get("children")
-        node_path = f"{path}_{i}"
-        cb_key = f"treecb__{state_key}__{ctr}__{node_path}"
-        # Init fra state_key kun første gang denne ctr-versjonen renderes
-        if cb_key not in st.session_state:
-            st.session_state[cb_key] = (val in valgt)
-        if children:
-            with st.expander(lbl, expanded=(level < default_open_depth)):
-                st.checkbox(f"✓ Velg «{lbl}»", key=cb_key)
-                render_tre_native(children, state_key, ctr, default_open_depth, level + 1, node_path)
-        else:
-            st.checkbox(lbl, key=cb_key)
-
-
 def er_tids_dim(dim_label: str, dim_kode: str) -> bool:
     lbl = dim_label.lower()
     kode = dim_kode.lower()
@@ -337,34 +284,6 @@ st.markdown(
       [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
         font-size: 0.92rem;
       }
-      [data-testid="stSidebar"] .stButton button {
-        padding: 0.15rem 0.4rem;
-        font-size: 0.78rem;
-        background: #2c5282;
-        color: #ffffff;
-        border: 1px solid #14365c;
-      }
-      [data-testid="stSidebar"] .stButton button:hover {
-        background: #14365c;
-        color: #ffffff;
-      }
-
-      /* Datasett-kort — alltid mørkblå (intencjonelt aksent, fungerer i begge tema) */
-      .dataset-card {
-        background: linear-gradient(135deg, #14365c 0%, #2c5282 100%);
-        padding: 1rem 1.4rem 0.6rem 1.4rem;
-        border-radius: 12px;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-      }
-      .dataset-card label,
-      .dataset-card p,
-      .dataset-card .stSelectbox > label,
-      .dataset-card .stTextInput > label {
-        color: #d8e4f3 !important;
-        font-weight: 500;
-      }
-
       /* Faner — gjør dem tydeligere */
       [data-testid="stTabs"] [data-baseweb="tab-list"] {
         gap: 4px;
@@ -419,34 +338,58 @@ st.markdown(
       [data-testid="stHeader"] [data-testid="stToolbar"] svg,
       [data-testid="stHeader"] button { color: #fff !important; }
 
-      /* Radio som tabs — datakilder + tabeller */
-      .radio-as-tabs [data-testid="stRadio"] > label { display: none; }
-      .radio-as-tabs [data-testid="stRadio"] > div {
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 4px;
-        border-bottom: 2px solid rgba(74, 123, 168, 0.4);
-        padding-bottom: 2px;
+      /* Padding under stHeader så øverste innhold ikke ligger under den */
+      [data-testid="stAppViewContainer"] > section.main > div.block-container {
+        padding-top: 4.5rem !important;
       }
-      .radio-as-tabs [data-testid="stRadio"] label {
-        background: rgba(128, 128, 128, 0.08);
-        border-radius: 8px 8px 0 0;
-        padding: 0.4rem 0.9rem !important;
-        margin: 0 !important;
-        cursor: pointer;
+      [data-testid="stSidebar"] > div:first-child { padding-top: 4.5rem !important; }
+
+      /* Venstre sidebar: kompakt kilde→tabell-tre */
+      [data-testid="stSidebar"] .stButton button {
+        text-align: left;
+        justify-content: flex-start;
+        white-space: normal;
+        height: auto;
+        padding: 4px 8px;
+        font-size: 0.82rem;
+        font-weight: 400;
+        background: transparent;
+        color: inherit;
         border: 1px solid transparent;
-        font-size: 0.92rem;
       }
-      .radio-as-tabs [data-testid="stRadio"] label:hover {
+      [data-testid="stSidebar"] .stButton button:hover {
         background: rgba(74, 123, 168, 0.18);
+        border-color: rgba(74, 123, 168, 0.35);
       }
-      /* Skjul radio-prikkene helt — bare teksten */
-      .radio-as-tabs [data-testid="stRadio"] label > div:first-child { display: none; }
-      .radio-as-tabs [data-testid="stRadio"] label:has(input:checked) {
+      /* Aktiv kilde/tabell-knapp — bruk type=primary fra Streamlit */
+      [data-testid="stSidebar"] .stButton button[kind="primary"] {
         background: #2c5282 !important;
         color: #fff !important;
         font-weight: 600;
         border-color: #14365c;
+      }
+      /* Innrykk for tabell-knapper (under kilde) */
+      [data-testid="stSidebar"] .tabell-rad .stButton button {
+        padding-left: 1.3rem;
+        font-size: 0.78rem;
+      }
+
+      /* Høyre filterkolonne: kompakte filterbokser */
+      .filter-col [data-testid="stContainer"] {
+        background: rgba(128, 128, 128, 0.06);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 8px;
+        padding: 6px 10px;
+        margin-bottom: 6px;
+      }
+      .filter-col .filter-tittel {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #4a7ba8;
+        margin: 0 0 2px 0;
+      }
+      .filter-col [data-testid="stMultiSelect"] [data-baseweb="tag"] {
+        font-size: 0.72rem;
       }
     </style>
     """,
@@ -455,68 +398,84 @@ st.markdown(
 
 # Tittel rendres i Streamlits header via CSS — se [data-testid="stHeader"]::before
 
-# === Datakilder som faner (radio styled som tabs) ===
 try:
     kilder = get_kilder()
 except Exception as e:
     st.error(f"Kunne ikke hente datakilder: {e}")
     st.stop()
 
-kilde_options = [k["id"] for k in kilder]
-kilde_label_map = {k["id"]: f"{k['title']} ({k['id']})" for k in kilder}
-
-st.markdown('<div class="radio-as-tabs">', unsafe_allow_html=True)
-kilde_id = st.radio(
-    "Datakilde",
-    options=kilde_options,
-    format_func=lambda k: kilde_label_map[k],
-    horizontal=True,
-    label_visibility="collapsed",
-    key="aktiv_kilde",
-)
-st.markdown('</div>', unsafe_allow_html=True)
-
-try:
-    tabeller = get_tabeller(kilde_id)
-except Exception as e:
-    st.error(f"Kunne ikke hente tabeller: {e}")
-    st.stop()
-if not tabeller:
-    st.warning("Ingen tabeller tilgjengelig for denne kilden.")
-    st.stop()
-
-# Søk + tabell-tabs
-sok_c, info_c = st.columns([3, 1])
-with sok_c:
-    tabell_sok = st.text_input(
-        "🔍 Søk i tabeller", "", placeholder="Skriv for å filtrere tabellnavn…",
-        key=f"sok_{kilde_id}", label_visibility="collapsed",
+# === Venstre sidebar: kilde→tabell-tre ===
+with st.sidebar:
+    sb_sok = st.text_input(
+        "🔍 Søk i kilder/tabeller", "",
+        placeholder="Filter på navn…",
+        key="sok_kilde_tabell",
+        label_visibility="collapsed",
     )
-filt = [t for t in tabeller if tabell_sok.lower() in t["title"].lower()]
-with info_c:
-    st.caption(f"📋 {len(filt)} av {len(tabeller)} tabeller")
-if not filt:
-    st.warning("Ingen treff på søket.")
-    st.stop()
 
-tabell_options = [t["tableId"] for t in filt]
-tabell_label_map = {t["tableId"]: f"{t['title']} (#{t['tableId']})" for t in filt}
+    # Hvilken kilde er åpnet i treet (kan avvike fra aktiv)
+    if "open_source" not in st.session_state:
+        st.session_state["open_source"] = st.session_state.get("aktiv_kilde") or kilder[0]["id"]
 
-# Hold styr på valgt tabell per kilde, men reset hvis ikke i filtrert liste
-tabell_state_key = f"aktiv_tabell_{kilde_id}"
-if (st.session_state.get(tabell_state_key) not in tabell_options):
-    st.session_state[tabell_state_key] = tabell_options[0]
+    for k in kilder:
+        sid = k["id"]
+        is_active_src = (st.session_state.get("aktiv_kilde") == sid)
+        is_open = (st.session_state["open_source"] == sid) or bool(sb_sok)
 
-st.markdown('<div class="radio-as-tabs">', unsafe_allow_html=True)
-tabell_id = st.radio(
-    "Tabell",
-    options=tabell_options,
-    format_func=lambda t: tabell_label_map[t],
-    horizontal=True,
-    label_visibility="collapsed",
-    key=tabell_state_key,
-)
-st.markdown('</div>', unsafe_allow_html=True)
+        prefix = "▼ " if is_open else "▶ "
+        if st.button(
+            f"{prefix}📚 {k['title']} ({sid})",
+            key=f"src_{sid}",
+            use_container_width=True,
+            type="primary" if is_active_src else "secondary",
+        ):
+            st.session_state["open_source"] = sid
+            st.rerun()
+
+        if is_open:
+            try:
+                tabs_for_src = get_tabeller(sid)
+            except Exception:
+                continue
+            filt_t = [
+                t for t in tabs_for_src
+                if not sb_sok or sb_sok.lower() in t["title"].lower()
+            ]
+            if not filt_t:
+                continue
+            st.markdown('<div class="tabell-rad">', unsafe_allow_html=True)
+            for t in filt_t:
+                tid = t["tableId"]
+                is_active_tab = is_active_src and (st.session_state.get("aktiv_tabell") == tid)
+                if st.button(
+                    f"{'▶ ' if is_active_tab else '· '}{t['title']}",
+                    key=f"tab_{sid}_{tid}",
+                    use_container_width=True,
+                    type="primary" if is_active_tab else "secondary",
+                    help=f"Tabell #{tid}",
+                ):
+                    st.session_state["aktiv_kilde"] = sid
+                    st.session_state["aktiv_tabell"] = tid
+                    st.session_state["open_source"] = sid
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# Aktiv kilde + tabell — første gang: bruk første kilde + første tabell
+kilde_id = st.session_state.get("aktiv_kilde") or kilder[0]["id"]
+st.session_state["aktiv_kilde"] = kilde_id
+
+if not st.session_state.get("aktiv_tabell"):
+    try:
+        first_tabs = get_tabeller(kilde_id)
+    except Exception as e:
+        st.error(f"Kunne ikke hente tabeller: {e}")
+        st.stop()
+    if not first_tabs:
+        st.warning("Ingen tabeller for denne kilden.")
+        st.stop()
+    st.session_state["aktiv_tabell"] = first_tabs[0]["tableId"]
+
+tabell_id = st.session_state["aktiv_tabell"]
 
 try:
     dim_data = get_dimensjoner(kilde_id, tabell_id)
@@ -524,116 +483,101 @@ except Exception as e:
     st.error(f"Kunne ikke hente dimensjoner: {e}")
     st.stop()
 
-# === Sidebar: én global form for alle filtre ===
-# Tre-dims samles inn etter form-submit (st.button kan ikke ligge i form)
-tree_dims_to_commit: list[tuple[str, int, list[dict]]] = []
+# === Hovedlayout: graf til venstre, filter-sidebar til høyre ===
+graph_col, filter_col = st.columns([3.5, 1.3], gap="medium")
 
-with st.sidebar:
-    with st.form(key=f"filters_{tabell_id}", border=False, clear_on_submit=False):
-        bc1, bc2 = st.columns(2)
-        apply_clicked = bc1.form_submit_button(
-            "✓ Bruk valg", type="primary", use_container_width=True,
-        )
-        nullstill_clicked = bc2.form_submit_button(
-            "↺ Nullstill", use_container_width=True,
-            help="Tilbake til smarte standardvalg for alle filtre",
-        )
-        st.caption(f"{len(dim_data['dimensions'])} dimensjoner")
+with filter_col:
+    st.markdown('<div class="filter-col">', unsafe_allow_html=True)
 
-        for dim in dim_data["dimensions"]:
-            kode = dim["code"]
-            lbl = dim["label"]
-            flat = flat_kategorier(dim["categories"])
-            if not flat:
-                continue
-            viste_labels = [format_label(*item) for item in flat]
-            verdi_til_label = {v: l for v, l, _ in flat}
-            label_til_verdi = {format_label(v, l, d): v for v, l, d in flat}
-            depth_per_v = {v: d for v, l, d in flat}
-            all_values = [v for v, l, d in flat]
-
-            state_key = f"dim_v2_{tabell_id}_{kode}"
-            if state_key not in st.session_state:
-                default_labels = smart_default(lbl, kode, flat, viste_labels)
-                st.session_state[state_key] = [label_til_verdi[lab] for lab in default_labels]
-            else:
-                st.session_state[state_key] = [
-                    v for v in st.session_state[state_key] if v in label_til_verdi.values()
-                ]
-
-            is_time = er_tids_dim(lbl, kode) and len(all_values) > 4
-            is_tree = er_hierarkisk(flat) and len(flat) > 8
-
-            n_valgt = len(st.session_state[state_key])
-            er_maltall = "måltall" in lbl.lower() or "maltall" in lbl.lower() or "measure" in kode.lower()
-            utvidet = (is_tree or is_time or len(all_values) <= 12) and not er_maltall
-
-            with st.expander(f"**{lbl}** — {n_valgt}/{len(viste_labels)}", expanded=utvidet):
-                if is_time:
-                    ts_values = (
-                        [v for v, l, d in flat if d > 0]
-                        if er_hierarkisk(flat) else all_values
-                    )
-                    ts_labels = {v: l for v, l, d in flat}
-                    eksisterende = [v for v in st.session_state[state_key] if v in ts_values]
-                    if eksisterende:
-                        start_def, end_def = eksisterende[0], eksisterende[-1]
-                    else:
-                        start_def, end_def = ts_values[max(0, len(ts_values) - 20)], ts_values[-1]
-                    start, end = st.select_slider(
-                        "Periode",
-                        options=ts_values,
-                        value=(start_def, end_def),
-                        format_func=lambda v: ts_labels.get(v, v),
-                        key=f"slider_{state_key}",
-                        label_visibility="collapsed",
-                    )
-                    i, j = ts_values.index(start), ts_values.index(end)
-                    st.session_state[state_key] = ts_values[i:j + 1]
-                    st.caption(f"📅 {ts_labels.get(start)} → {ts_labels.get(end)}  ({j - i + 1} perioder)")
-                elif is_tree:
-                    ctr_key = f"ctr_{state_key}"
-                    if ctr_key not in st.session_state:
-                        st.session_state[ctr_key] = 0
-                    tre = bygg_tre(dim["categories"])
-                    ctr_val = st.session_state[ctr_key]
-                    render_tre_native(
-                        tre,
-                        state_key=state_key,
-                        ctr=ctr_val,
-                        default_open_depth=1,
-                    )
-                    tree_dims_to_commit.append((state_key, ctr_val, tre))
-                    st.caption(f"Valgt: {n_valgt} av {len(all_values)}")
-                else:
-                    st.multiselect(
-                        "Verdier",
-                        options=all_values,
-                        format_func=lambda v, vl=verdi_til_label, dp=depth_per_v: format_label(v, vl[v], dp[v]),
-                        key=state_key,
-                        label_visibility="collapsed",
-                    )
-
-    # === Etter form-submit: håndter knappene ===
-    if nullstill_clicked:
+    bc1, bc2 = st.columns(2)
+    bc1.button(
+        "✓ Bruk valg", type="primary", use_container_width=True,
+        key=f"apply_{tabell_id}",
+        help="Tving en oppfriskning av grafen (filtre virker reaktivt allerede)",
+    )
+    if bc2.button(
+        "↺ Nullstill", use_container_width=True, key=f"reset_{tabell_id}",
+        help="Tilbake til standardvalg for alle filtre",
+    ):
         prefixes = (
             f"dim_v2_{tabell_id}_",
             f"slider_dim_v2_{tabell_id}_",
-            f"ctr_dim_v2_{tabell_id}_",
-            f"treecb__dim_v2_{tabell_id}_",
         )
         for k in list(st.session_state.keys()):
             if any(k.startswith(p) for p in prefixes):
                 del st.session_state[k]
         st.rerun()
-    elif apply_clicked:
-        for state_key, ctr_val, tre in tree_dims_to_commit:
-            valgte = [
-                v for v, ck, _ in _walk_tre(tre, state_key, ctr_val)
-                if st.session_state.get(ck)
+
+    st.caption(f"{len(dim_data['dimensions'])} variabler")
+
+    for dim in dim_data["dimensions"]:
+        kode = dim["code"]
+        lbl = dim["label"]
+        flat = flat_kategorier(dim["categories"])
+        if not flat:
+            continue
+        viste_labels = [format_label(*item) for item in flat]
+        verdi_til_label = {v: l for v, l, _ in flat}
+        label_til_verdi = {format_label(v, l, d): v for v, l, d in flat}
+        depth_per_v = {v: d for v, l, d in flat}
+        all_values = [v for v, l, d in flat]
+
+        state_key = f"dim_v2_{tabell_id}_{kode}"
+        if state_key not in st.session_state:
+            default_labels = smart_default(lbl, kode, flat, viste_labels)
+            st.session_state[state_key] = [label_til_verdi[lab] for lab in default_labels]
+        else:
+            st.session_state[state_key] = [
+                v for v in st.session_state[state_key] if v in label_til_verdi.values()
             ]
-            st.session_state[state_key] = valgte
-        st.rerun()
+
+        is_time = er_tids_dim(lbl, kode) and len(all_values) > 4
+        n_valgt = len(st.session_state[state_key])
+
+        with st.container(border=True):
+            tc1, tc2 = st.columns([5, 1])
+            tc1.markdown(
+                f'<div class="filter-tittel">{lbl} — {n_valgt}/{len(all_values)}</div>',
+                unsafe_allow_html=True,
+            )
+            if tc2.button("✕", key=f"clr_{state_key}", help=f"Tøm {lbl}"):
+                st.session_state[state_key] = []
+                if is_time and f"slider_{state_key}" in st.session_state:
+                    del st.session_state[f"slider_{state_key}"]
+                st.rerun()
+
+            if is_time:
+                ts_values = (
+                    [v for v, l, d in flat if d > 0]
+                    if er_hierarkisk(flat) else all_values
+                )
+                ts_labels = {v: l for v, l, d in flat}
+                eksisterende = [v for v in st.session_state[state_key] if v in ts_values]
+                if eksisterende:
+                    start_def, end_def = eksisterende[0], eksisterende[-1]
+                else:
+                    start_def, end_def = ts_values[max(0, len(ts_values) - 20)], ts_values[-1]
+                start, end = st.select_slider(
+                    "Periode",
+                    options=ts_values,
+                    value=(start_def, end_def),
+                    format_func=lambda v, tl=ts_labels: tl.get(v, v),
+                    key=f"slider_{state_key}",
+                    label_visibility="collapsed",
+                )
+                i, j = ts_values.index(start), ts_values.index(end)
+                st.session_state[state_key] = ts_values[i:j + 1]
+                st.caption(f"📅 {ts_labels.get(start)} → {ts_labels.get(end)}")
+            else:
+                st.multiselect(
+                    "Verdier",
+                    options=all_values,
+                    format_func=lambda v, vl=verdi_til_label, dp=depth_per_v: format_label(v, vl[v], dp[v]),
+                    key=state_key,
+                    label_visibility="collapsed",
+                )
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # === Bygg valgte_per_dim + meta fra committed state ===
 valgte_per_dim: dict[str, list[str]] = {}
@@ -654,216 +598,217 @@ for dim in dim_data["dimensions"]:
         "valgte_labels": [verdi_til_label.get(v, v) for v in valgte_per_dim[kode]],
     })
 
-# --- Hovedområde ---
+with graph_col:
+    # --- Hovedområde ---
 
-# Hvis brukeren har "tømt" en dim, auto-fyll med smart-default i stedet for å stoppe.
-tomme_dim = [m["label"] for m in dim_meta if m["antall_valgt"] == 0]
-if tomme_dim:
-    st.info(
-        f"ℹ️ Tomme filtre: **{', '.join(tomme_dim)}** — bruker standardvalg for disse. "
-        "Velg verdier i venstremenyen for å overstyre."
-    )
-    auto_fyll = auto_velg_per_dim(dim_data)
-    for kode, verdier in valgte_per_dim.items():
-        if not verdier:
-            valgte_per_dim[kode] = auto_fyll.get(kode, [])
-
-# Bygg sporring fra template, override values per dim
-try:
-    template = get_template(kilde_id, tabell_id)
-except Exception as e:
-    st.error(f"Kunne ikke hente template: {e}")
-    st.stop()
-
-sporring = bygg_sporring(dim_data, template, valgte_per_dim)
-
-# Hent data
-estimert = 1
-for v in valgte_per_dim.values():
-    estimert *= max(1, len(v))
-
-if estimert > 50000:
-    st.error(f"Du har valgt {estimert:,} kombinasjoner — over taket på 50 000. Reduser filtrene.")
-    st.stop()
-
-with st.spinner(f"Henter {estimert:,} datapunkter fra FHI…"):
-    try:
-        ds = hent_data(kilde_id, tabell_id, json.dumps(sporring))
-    except httpx.HTTPStatusError as e:
-        st.error(f"FHI API-feil ({e.response.status_code}): {e.response.text[:500]}")
-        st.stop()
-    except Exception as e:
-        st.error(f"Henting feilet: {e}")
-        st.stop()
-
-df = jsonstat_til_dataframe(ds)
-df = df.dropna(subset=["Verdi"])
-
-if df.empty:
-    st.warning("Ingen tall i resultatet (alt undertrykket eller manglende).")
-    st.stop()
-
-st.success(f"✅ {len(df):,} rader fra **{ds.get('label', '?')}**, oppdatert {ds.get('updated', '?')[:10]}")
-
-dim_kolonner = [d["label"] for d in dim_data["dimensions"] if d["label"] in df.columns]
-varierende = [c for c in dim_kolonner if df[c].nunique() > 1]
-konstante = [c for c in dim_kolonner if df[c].nunique() == 1]
-
-PALETT_MAP = {
-    "Plotly": px.colors.qualitative.Plotly, "D3": px.colors.qualitative.D3,
-    "G10": px.colors.qualitative.G10, "T10": px.colors.qualitative.T10,
-    "Set1": px.colors.qualitative.Set1, "Set2": px.colors.qualitative.Set2,
-    "Set3": px.colors.qualitative.Set3, "Pastel": px.colors.qualitative.Pastel,
-    "Bold": px.colors.qualitative.Bold, "Vivid": px.colors.qualitative.Vivid,
-    "Dark24": px.colors.qualitative.Dark24, "Light24": px.colors.qualitative.Light24,
-    "Viridis": px.colors.sequential.Viridis, "Plasma": px.colors.sequential.Plasma,
-    "Turbo": px.colors.sequential.Turbo,
-}
-
-# === Faner ===
-tab_min, tab_oversikt, tab_data, tab_query, tab_meta = st.tabs([
-    "📈 Min graf", "🔭 Oversikt", "📋 Data", "🧬 Spørring", "ℹ️ Om tabellen",
-])
-
-# ---------- Min graf ---------------------------------------------------------
-with tab_min:
-    if not varierende:
-        st.info("Bare én verdi i hver dimensjon — ingenting å plotte. Endre filtrene.")
-    else:
-        with st.expander("🎨 Visualiseringsvalg", expanded=False):
-            c0, c1, c2, c3, c4 = st.columns([1.4, 1.4, 1.4, 1.4, 1.6])
-            with c0:
-                foretrukket = next(
-                    (c for c in varierende if any(t in c.lower() for t in ["år", "uke", "tid", "dato", "ar"])),
-                    varierende[0],
-                )
-                x_akse = st.selectbox("X-akse", varierende, index=varierende.index(foretrukket))
-            with c1:
-                fargekandidater = ["(ingen)"] + [c for c in varierende if c != x_akse]
-                farge = st.selectbox("Farge etter", fargekandidater, index=1 if len(fargekandidater) > 1 else 0)
-            with c2:
-                stilkandidater = ["(ingen)"] + [c for c in varierende if c != x_akse and c != farge]
-                stil = st.selectbox("Stil/markør etter", stilkandidater, index=0)
-            with c3:
-                graftype = st.selectbox("Graftype", [
-                    "Linje", "Linje + markører", "Søyle", "Gruppert søyle",
-                    "Stablet søyle", "Område", "Stablet område", "Scatter (punkter)",
-                ])
-            with c4:
-                palett_navn = st.selectbox("Fargepalett", list(PALETT_MAP.keys()))
-
-        agg_kols = [x_akse] + ([farge] if farge != "(ingen)" else []) + ([stil] if stil != "(ingen)" else [])
-        agg_kols = list(dict.fromkeys(agg_kols))
-        plot_df = df.groupby(agg_kols, dropna=False, as_index=False)["Verdi"].sum()
-        plot_df = plot_df.sort_values(by=agg_kols)
-
-        ymerke = None
-        maltall_kol = next((c for c in ["Måltall", "Maltall"] if c in df.columns), None)
-        if maltall_kol and df[maltall_kol].nunique() == 1:
-            ymerke = df[maltall_kol].iloc[0]
-
-        try:
-            fig = lag_graf(plot_df, x_akse, farge, stil, graftype,
-                            PALETT_MAP[palett_navn], ds.get("label", ""), ymerke)
-            st.plotly_chart(fig, width="stretch", theme="streamlit")
-        except Exception as e:
-            st.error(f"Kunne ikke bygge graf: {e}")
-
-        if konstante:
-            st.markdown("**Faste filtre:** " + " · ".join(f"`{c}: {df[c].iloc[0]}`" for c in konstante))
-
-# ---------- Oversikt — auto-illustrasjon av hele datasettet ------------------
-with tab_oversikt:
-    st.caption(
-        "Auto-generert oversikt over hele datasettet med smarte standardvalg "
-        "(siste 20 år/52 uker, hovednivåer, ett måltall). Uavhengig av filtrene dine til venstre."
-    )
-
-    auto_dim = auto_velg_per_dim(dim_data)
-    auto_estimert = 1
-    for v in auto_dim.values():
-        auto_estimert *= max(1, len(v))
-
-    if auto_estimert > 50000:
-        st.warning(
-            f"Standard-oversikten ville hentet {auto_estimert:,} celler — for mye. "
-            "Tabellen er svært bred; gå til 'Min graf'-fanen og innsnevre selv."
+    # Hvis brukeren har "tømt" en dim, auto-fyll med smart-default i stedet for å stoppe.
+    tomme_dim = [m["label"] for m in dim_meta if m["antall_valgt"] == 0]
+    if tomme_dim:
+        st.info(
+            f"ℹ️ Tomme filtre: **{', '.join(tomme_dim)}** — bruker standardvalg for disse. "
+            "Velg verdier i venstremenyen for å overstyre."
         )
-    else:
+        auto_fyll = auto_velg_per_dim(dim_data)
+        for kode, verdier in valgte_per_dim.items():
+            if not verdier:
+                valgte_per_dim[kode] = auto_fyll.get(kode, [])
+
+    # Bygg sporring fra template, override values per dim
+    try:
+        template = get_template(kilde_id, tabell_id)
+    except Exception as e:
+        st.error(f"Kunne ikke hente template: {e}")
+        st.stop()
+
+    sporring = bygg_sporring(dim_data, template, valgte_per_dim)
+
+    # Hent data
+    estimert = 1
+    for v in valgte_per_dim.values():
+        estimert *= max(1, len(v))
+
+    if estimert > 50000:
+        st.error(f"Du har valgt {estimert:,} kombinasjoner — over taket på 50 000. Reduser filtrene.")
+        st.stop()
+
+    with st.spinner(f"Henter {estimert:,} datapunkter fra FHI…"):
         try:
-            auto_template = template
-            auto_sporring = bygg_sporring(dim_data, auto_template, auto_dim)
-            with st.spinner(f"Henter {auto_estimert:,} celler for oversikt…"):
-                auto_ds = hent_data(kilde_id, tabell_id, json.dumps(auto_sporring))
-            auto_df = jsonstat_til_dataframe(auto_ds).dropna(subset=["Verdi"])
+            ds = hent_data(kilde_id, tabell_id, json.dumps(sporring))
+        except httpx.HTTPStatusError as e:
+            st.error(f"FHI API-feil ({e.response.status_code}): {e.response.text[:500]}")
+            st.stop()
         except Exception as e:
-            st.error(f"Kunne ikke hente oversiktsdata: {e}")
-            auto_df = pd.DataFrame()
+            st.error(f"Henting feilet: {e}")
+            st.stop()
 
-        if auto_df.empty:
-            st.info("Ingen tall i oversikten.")
+    df = jsonstat_til_dataframe(ds)
+    df = df.dropna(subset=["Verdi"])
+
+    if df.empty:
+        st.warning("Ingen tall i resultatet (alt undertrykket eller manglende).")
+        st.stop()
+
+    st.success(f"✅ {len(df):,} rader fra **{ds.get('label', '?')}**, oppdatert {ds.get('updated', '?')[:10]}")
+
+    dim_kolonner = [d["label"] for d in dim_data["dimensions"] if d["label"] in df.columns]
+    varierende = [c for c in dim_kolonner if df[c].nunique() > 1]
+    konstante = [c for c in dim_kolonner if df[c].nunique() == 1]
+
+    PALETT_MAP = {
+        "Plotly": px.colors.qualitative.Plotly, "D3": px.colors.qualitative.D3,
+        "G10": px.colors.qualitative.G10, "T10": px.colors.qualitative.T10,
+        "Set1": px.colors.qualitative.Set1, "Set2": px.colors.qualitative.Set2,
+        "Set3": px.colors.qualitative.Set3, "Pastel": px.colors.qualitative.Pastel,
+        "Bold": px.colors.qualitative.Bold, "Vivid": px.colors.qualitative.Vivid,
+        "Dark24": px.colors.qualitative.Dark24, "Light24": px.colors.qualitative.Light24,
+        "Viridis": px.colors.sequential.Viridis, "Plasma": px.colors.sequential.Plasma,
+        "Turbo": px.colors.sequential.Turbo,
+    }
+
+    # === Faner ===
+    tab_min, tab_oversikt, tab_data, tab_query, tab_meta = st.tabs([
+        "📈 Min graf", "🔭 Oversikt", "📋 Data", "🧬 Spørring", "ℹ️ Om tabellen",
+    ])
+
+    # ---------- Min graf ---------------------------------------------------------
+    with tab_min:
+        if not varierende:
+            st.info("Bare én verdi i hver dimensjon — ingenting å plotte. Endre filtrene.")
         else:
-            auto_dim_kol = [d["label"] for d in dim_data["dimensions"] if d["label"] in auto_df.columns]
-            auto_x, auto_color = auto_velg_akser(auto_df, auto_dim_kol)
-            if auto_x is None:
-                st.info("Ingen varierende dimensjoner — ingenting å plotte.")
+            with st.expander("🎨 Visualiseringsvalg", expanded=False):
+                c0, c1, c2, c3, c4 = st.columns([1.4, 1.4, 1.4, 1.4, 1.6])
+                with c0:
+                    foretrukket = next(
+                        (c for c in varierende if any(t in c.lower() for t in ["år", "uke", "tid", "dato", "ar"])),
+                        varierende[0],
+                    )
+                    x_akse = st.selectbox("X-akse", varierende, index=varierende.index(foretrukket))
+                with c1:
+                    fargekandidater = ["(ingen)"] + [c for c in varierende if c != x_akse]
+                    farge = st.selectbox("Farge etter", fargekandidater, index=1 if len(fargekandidater) > 1 else 0)
+                with c2:
+                    stilkandidater = ["(ingen)"] + [c for c in varierende if c != x_akse and c != farge]
+                    stil = st.selectbox("Stil/markør etter", stilkandidater, index=0)
+                with c3:
+                    graftype = st.selectbox("Graftype", [
+                        "Linje", "Linje + markører", "Søyle", "Gruppert søyle",
+                        "Stablet søyle", "Område", "Stablet område", "Scatter (punkter)",
+                    ])
+                with c4:
+                    palett_navn = st.selectbox("Fargepalett", list(PALETT_MAP.keys()))
+
+            agg_kols = [x_akse] + ([farge] if farge != "(ingen)" else []) + ([stil] if stil != "(ingen)" else [])
+            agg_kols = list(dict.fromkeys(agg_kols))
+            plot_df = df.groupby(agg_kols, dropna=False, as_index=False)["Verdi"].sum()
+            plot_df = plot_df.sort_values(by=agg_kols)
+
+            ymerke = None
+            maltall_kol = next((c for c in ["Måltall", "Maltall"] if c in df.columns), None)
+            if maltall_kol and df[maltall_kol].nunique() == 1:
+                ymerke = df[maltall_kol].iloc[0]
+
+            try:
+                fig = lag_graf(plot_df, x_akse, farge, stil, graftype,
+                                PALETT_MAP[palett_navn], ds.get("label", ""), ymerke)
+                st.plotly_chart(fig, width="stretch", theme="streamlit")
+            except Exception as e:
+                st.error(f"Kunne ikke bygge graf: {e}")
+
+            if konstante:
+                st.markdown("**Faste filtre:** " + " · ".join(f"`{c}: {df[c].iloc[0]}`" for c in konstante))
+
+    # ---------- Oversikt — auto-illustrasjon av hele datasettet ------------------
+    with tab_oversikt:
+        st.caption(
+            "Auto-generert oversikt over hele datasettet med smarte standardvalg "
+            "(siste 20 år/52 uker, hovednivåer, ett måltall). Uavhengig av filtrene dine til venstre."
+        )
+
+        auto_dim = auto_velg_per_dim(dim_data)
+        auto_estimert = 1
+        for v in auto_dim.values():
+            auto_estimert *= max(1, len(v))
+
+        if auto_estimert > 50000:
+            st.warning(
+                f"Standard-oversikten ville hentet {auto_estimert:,} celler — for mye. "
+                "Tabellen er svært bred; gå til 'Min graf'-fanen og innsnevre selv."
+            )
+        else:
+            try:
+                auto_template = template
+                auto_sporring = bygg_sporring(dim_data, auto_template, auto_dim)
+                with st.spinner(f"Henter {auto_estimert:,} celler for oversikt…"):
+                    auto_ds = hent_data(kilde_id, tabell_id, json.dumps(auto_sporring))
+                auto_df = jsonstat_til_dataframe(auto_ds).dropna(subset=["Verdi"])
+            except Exception as e:
+                st.error(f"Kunne ikke hente oversiktsdata: {e}")
+                auto_df = pd.DataFrame()
+
+            if auto_df.empty:
+                st.info("Ingen tall i oversikten.")
             else:
-                # heuristikk: linje hvis tid på x, ellers gruppert søyle
-                is_tid = any(t in auto_x.lower() for t in ["år", "uke", "tid", "dato"])
-                gtype = "Linje + markører" if is_tid else "Gruppert søyle"
-
-                agg_kols2 = [auto_x] + ([auto_color] if auto_color else [])
-                pdf = auto_df.groupby(agg_kols2, dropna=False, as_index=False)["Verdi"].sum()
-                pdf = pdf.sort_values(by=agg_kols2)
-
-                ymerke2 = None
-                mc = next((c for c in ["Måltall", "Maltall"] if c in auto_df.columns), None)
-                if mc and auto_df[mc].nunique() == 1:
-                    ymerke2 = auto_df[mc].iloc[0]
-
-                fig2 = lag_graf(pdf, auto_x, auto_color or "(ingen)", "(ingen)",
-                                 gtype, px.colors.qualitative.Bold,
-                                 auto_ds.get("label", ""), ymerke2)
-                st.plotly_chart(fig2, width="stretch", theme="streamlit")
-
-                # Stikkord-oversikt
-                kol1, kol2, kol3 = st.columns(3)
-                kol1.metric("Datapunkter", f"{len(auto_df):,}")
-                kol2.metric("Dimensjoner", len(auto_dim_kol))
-                if is_tid and auto_x in auto_df.columns:
-                    tid_verdier = sorted(auto_df[auto_x].unique())
-                    kol3.metric("Tidsspenn", f"{tid_verdier[0]} → {tid_verdier[-1]}")
+                auto_dim_kol = [d["label"] for d in dim_data["dimensions"] if d["label"] in auto_df.columns]
+                auto_x, auto_color = auto_velg_akser(auto_df, auto_dim_kol)
+                if auto_x is None:
+                    st.info("Ingen varierende dimensjoner — ingenting å plotte.")
                 else:
-                    kol3.metric("Verdier på x-akse", auto_df[auto_x].nunique())
+                    # heuristikk: linje hvis tid på x, ellers gruppert søyle
+                    is_tid = any(t in auto_x.lower() for t in ["år", "uke", "tid", "dato"])
+                    gtype = "Linje + markører" if is_tid else "Gruppert søyle"
 
-                st.markdown(
-                    "**Auto-valg:** "
-                    f"x-akse = `{auto_x}`"
-                    + (f", farge = `{auto_color}`" if auto_color else "")
-                    + f", graftype = `{gtype}`"
-                )
+                    agg_kols2 = [auto_x] + ([auto_color] if auto_color else [])
+                    pdf = auto_df.groupby(agg_kols2, dropna=False, as_index=False)["Verdi"].sum()
+                    pdf = pdf.sort_values(by=agg_kols2)
 
-# ---------- Data, Spørring, Om ----------------------------------------------
-with tab_data:
-    st.dataframe(df, width="stretch", height=420)
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("Last ned som CSV", csv, file_name=f"fhi_{kilde_id}_{tabell_id}.csv", mime="text/csv")
+                    ymerke2 = None
+                    mc = next((c for c in ["Måltall", "Maltall"] if c in auto_df.columns), None)
+                    if mc and auto_df[mc].nunique() == 1:
+                        ymerke2 = auto_df[mc].iloc[0]
 
-with tab_query:
-    st.code(json.dumps(sporring, ensure_ascii=False, indent=2), language="json")
-    st.caption(
-        f"POST {BASE_URL}/{kilde_id}/Table/{tabell_id}/data — "
-        f"{estimert:,} kombinasjoner forespurt, {len(df):,} med tall."
-    )
+                    fig2 = lag_graf(pdf, auto_x, auto_color or "(ingen)", "(ingen)",
+                                     gtype, px.colors.qualitative.Bold,
+                                     auto_ds.get("label", ""), ymerke2)
+                    st.plotly_chart(fig2, width="stretch", theme="streamlit")
 
-with tab_meta:
-    st.json({
-        "kilde": kilde_id,
-        "tabell_id": tabell_id,
-        "tittel": ds.get("label"),
-        "oppdatert": ds.get("updated"),
-        "dimensjoner": [
-            {"kode": d["code"], "label": d["label"], "antall_kategorier": len(flat_kategorier(d["categories"]))}
-            for d in dim_data["dimensions"]
-        ],
-    })
+                    # Stikkord-oversikt
+                    kol1, kol2, kol3 = st.columns(3)
+                    kol1.metric("Datapunkter", f"{len(auto_df):,}")
+                    kol2.metric("Dimensjoner", len(auto_dim_kol))
+                    if is_tid and auto_x in auto_df.columns:
+                        tid_verdier = sorted(auto_df[auto_x].unique())
+                        kol3.metric("Tidsspenn", f"{tid_verdier[0]} → {tid_verdier[-1]}")
+                    else:
+                        kol3.metric("Verdier på x-akse", auto_df[auto_x].nunique())
+
+                    st.markdown(
+                        "**Auto-valg:** "
+                        f"x-akse = `{auto_x}`"
+                        + (f", farge = `{auto_color}`" if auto_color else "")
+                        + f", graftype = `{gtype}`"
+                    )
+
+    # ---------- Data, Spørring, Om ----------------------------------------------
+    with tab_data:
+        st.dataframe(df, width="stretch", height=420)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("Last ned som CSV", csv, file_name=f"fhi_{kilde_id}_{tabell_id}.csv", mime="text/csv")
+
+    with tab_query:
+        st.code(json.dumps(sporring, ensure_ascii=False, indent=2), language="json")
+        st.caption(
+            f"POST {BASE_URL}/{kilde_id}/Table/{tabell_id}/data — "
+            f"{estimert:,} kombinasjoner forespurt, {len(df):,} med tall."
+        )
+
+    with tab_meta:
+        st.json({
+            "kilde": kilde_id,
+            "tabell_id": tabell_id,
+            "tittel": ds.get("label"),
+            "oppdatert": ds.get("updated"),
+            "dimensjoner": [
+                {"kode": d["code"], "label": d["label"], "antall_kategorier": len(flat_kategorier(d["categories"]))}
+                for d in dim_data["dimensions"]
+            ],
+        })
