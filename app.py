@@ -12,7 +12,6 @@ import httpx
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from streamlit_tree_select import tree_select
 
 BASE_URL = "https://statistikk-data.fhi.no/api/open/v1"
 USER_AGENT = "fhi-utforsker (contact: nyborgchristoffer@gmail.com)"
@@ -142,7 +141,7 @@ def _set_state(key: str, value):
 
 
 def bygg_tre(categories: list[dict]) -> list[dict]:
-    """FHI-kategoritre → streamlit_tree_select-format."""
+    """FHI-kategoritre → enkelt nested format {value, label, children}."""
     out = []
     for c in categories:
         node = {"label": c["label"], "value": c["value"]}
@@ -150,6 +149,53 @@ def bygg_tre(categories: list[dict]) -> list[dict]:
             node["children"] = bygg_tre(c["children"])
         out.append(node)
     return out
+
+
+def _tre_on_change(state_key: str, val: str, cb_key: str) -> None:
+    s = set(st.session_state.get(state_key, []))
+    if st.session_state.get(cb_key):
+        s.add(val)
+    else:
+        s.discard(val)
+    st.session_state[state_key] = list(s)
+
+
+def render_tre_native(
+    nodes: list[dict],
+    state_key: str,
+    ctr: int,
+    default_open_depth: int = 1,
+    level: int = 0,
+    path: str = "",
+) -> None:
+    """Native Streamlit-trevelger basert på expander + checkbox.
+    Bruker ingen iframe — følger app-tema automatisk."""
+    valgt = set(st.session_state.get(state_key, []))
+    for i, node in enumerate(nodes):
+        val = node["value"]
+        lbl = node["label"]
+        children = node.get("children")
+        node_path = f"{path}_{i}"
+        # ctr i nøkkelen tvinger remount når knapper resetter state
+        cb_key = f"treecb__{state_key}__{ctr}__{node_path}"
+        if cb_key not in st.session_state:
+            st.session_state[cb_key] = (val in valgt)
+        if children:
+            with st.expander(lbl, expanded=(level < default_open_depth)):
+                st.checkbox(
+                    f"✓ Velg «{lbl}»",
+                    key=cb_key,
+                    on_change=_tre_on_change,
+                    args=(state_key, val, cb_key),
+                )
+                render_tre_native(children, state_key, ctr, default_open_depth, level + 1, node_path)
+        else:
+            st.checkbox(
+                lbl,
+                key=cb_key,
+                on_change=_tre_on_change,
+                args=(state_key, val, cb_key),
+            )
 
 
 def er_tids_dim(dim_label: str, dim_kode: str) -> bool:
@@ -348,29 +394,12 @@ st.markdown(
       h1 { color: #4a7ba8; margin-bottom: 0.2rem; }
       .small-muted { color: rgba(128, 128, 128, 0.85); font-size: 0.85em; }
 
-      /* Tre-velger: streamlit-tree-select rendres i en iframe som ikke arver
-         app-temaet. Vi kan ikke nå inn i iframen, men `color-scheme: light only`
-         på iframe-elementet tvinger nettleserens UA-stil inni til lyst tema
-         (mørk tekst på hvit bakgrunn). `light only` er mer aggressiv enn `light`
-         og virker også når dokumentet inni har sitt eget color-scheme.
-         Som ekstra sikring inverterer vi tema-fargene i fallback. */
-      [data-testid="stSidebar"] iframe,
-      [data-testid="stCustomComponentV1"] iframe,
-      iframe[title*="tree_select"],
-      iframe[src*="tree_select"] {
-        color-scheme: light only !important;
-        background: #ffffff !important;
-        border-radius: 6px;
-        border: 1px solid rgba(128, 128, 128, 0.25);
-        forced-color-adjust: none !important;
+      /* Native trevelger: gjør expanders kompakte i sidebaren */
+      [data-testid="stSidebar"] [data-testid="stExpander"] {
+        margin-bottom: 2px;
       }
-      /* Wrapper-divens egen color-scheme — propagerer til alle barn inkl. iframe */
-      .tree-light,
-      [data-testid="stSidebar"] [data-testid="stCustomComponentV1"] {
-        color-scheme: light only !important;
-        background: #ffffff;
-        padding: 4px;
-        border-radius: 6px;
+      [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+        padding: 4px 8px;
       }
     </style>
     """,
@@ -524,22 +553,13 @@ with st.sidebar:
                           help="Velg første nivå (typisk hovedkategorier)")
 
                 tre = bygg_tre(dim["categories"])
-                # Kun rotnoder ekspandert som default (vis 2 nivåer: rot + hovedgrupper)
-                expanded_def = [v for v, l, d in flat if d == 0]
-                # Pakk treet i en lyst-tema-container for lesbarhet i mørk modus
-                st.markdown('<div class="tree-light">', unsafe_allow_html=True)
-                res = tree_select(
+                render_tre_native(
                     tre,
-                    checked=list(st.session_state[state_key]),
-                    expanded=expanded_def,
-                    no_cascade=True,
-                    show_expand_all=True,
-                    expand_on_click=True,
-                    key=f"tree_{state_key}_{st.session_state[ctr_key]}",
+                    state_key=state_key,
+                    ctr=st.session_state[ctr_key],
+                    default_open_depth=1,
                 )
-                st.markdown('</div>', unsafe_allow_html=True)
-                if res and "checked" in res:
-                    st.session_state[state_key] = res["checked"]
+                st.caption(f"Valgt: {len(st.session_state.get(state_key, []))} av {len(all_values)}")
 
             else:
                 # ---- Vanlig multiselect ----
