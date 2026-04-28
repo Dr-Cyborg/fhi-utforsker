@@ -348,22 +348,28 @@ st.markdown(
       h1 { color: #4a7ba8; margin-bottom: 0.2rem; }
       .small-muted { color: rgba(128, 128, 128, 0.85); font-size: 0.85em; }
 
-      /* Tre-velger: tving lyst tema slik at teksten er lesbar i mørk modus.
-         streamlit-tree-select rendres i en iframe som ikke arver app-temaet,
-         så vi pakker den i en lys-bakgrunn container med color-scheme:light. */
-      .tree-light + iframe,
-      .tree-light + div iframe,
+      /* Tre-velger: streamlit-tree-select rendres i en iframe som ikke arver
+         app-temaet. Vi kan ikke nå inn i iframen, men `color-scheme: light only`
+         på iframe-elementet tvinger nettleserens UA-stil inni til lyst tema
+         (mørk tekst på hvit bakgrunn). `light only` er mer aggressiv enn `light`
+         og virker også når dokumentet inni har sitt eget color-scheme.
+         Som ekstra sikring inverterer vi tema-fargene i fallback. */
+      [data-testid="stSidebar"] iframe,
+      [data-testid="stCustomComponentV1"] iframe,
       iframe[title*="tree_select"],
       iframe[src*="tree_select"] {
+        color-scheme: light only !important;
         background: #ffffff !important;
-        color-scheme: light !important;
         border-radius: 6px;
         border: 1px solid rgba(128, 128, 128, 0.25);
+        forced-color-adjust: none !important;
       }
-      /* Fallback: gi hver custom-component i sidebar lys bakgrunn */
-      [data-testid="stSidebar"] iframe {
-        background: #ffffff !important;
-        color-scheme: light !important;
+      /* Wrapper-divens egen color-scheme — propagerer til alle barn inkl. iframe */
+      .tree-light,
+      [data-testid="stSidebar"] [data-testid="stCustomComponentV1"] {
+        color-scheme: light only !important;
+        background: #ffffff;
+        padding: 4px;
         border-radius: 6px;
       }
     </style>
