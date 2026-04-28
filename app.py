@@ -136,10 +136,6 @@ def smart_default(dim_label: str, dim_kode: str, flat: list[tuple[str, str, int]
     return [format_label(*it) for it in flat if it[2] == 0][:15]
 
 
-def _set_state(key: str, value):
-    st.session_state[key] = value
-
-
 def bygg_tre(categories: list[dict]) -> list[dict]:
     """FHI-kategoritre → enkelt nested format {value, label, children}."""
     out = []
@@ -396,30 +392,89 @@ st.markdown(
       [data-testid="stSidebar"] [data-testid="stExpander"] summary {
         padding: 4px 8px;
       }
+
+      /* Bruk Streamlits egen header som topplinje — spenner over sidebar +
+         hovedinnhold automatisk og lar hamburger-menyen være intakt */
+      [data-testid="stHeader"] {
+        background: linear-gradient(135deg, #14365c 0%, #2c5282 100%) !important;
+        height: 56px !important;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+      }
+      [data-testid="stHeader"]::before {
+        content: "📊 FHI Datautforsker  ·  Interaktiv visualisering av FHI Statistikk Open API";
+        position: absolute;
+        left: 1.4rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #fff;
+        font-size: 1.15rem;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: calc(100vw - 6rem);
+      }
+      /* La toolbar-ikonene (kebab/run) bli synlige mot mørkblå bakgrunn */
+      [data-testid="stHeader"] [data-testid="stToolbar"] svg,
+      [data-testid="stHeader"] button { color: #fff !important; }
+
+      /* Radio som tabs — datakilder + tabeller */
+      .radio-as-tabs [data-testid="stRadio"] > label { display: none; }
+      .radio-as-tabs [data-testid="stRadio"] > div {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 4px;
+        border-bottom: 2px solid rgba(74, 123, 168, 0.4);
+        padding-bottom: 2px;
+      }
+      .radio-as-tabs [data-testid="stRadio"] label {
+        background: rgba(128, 128, 128, 0.08);
+        border-radius: 8px 8px 0 0;
+        padding: 0.4rem 0.9rem !important;
+        margin: 0 !important;
+        cursor: pointer;
+        border: 1px solid transparent;
+        font-size: 0.92rem;
+      }
+      .radio-as-tabs [data-testid="stRadio"] label:hover {
+        background: rgba(74, 123, 168, 0.18);
+      }
+      /* Skjul radio-prikkene helt — bare teksten */
+      .radio-as-tabs [data-testid="stRadio"] label > div:first-child { display: none; }
+      .radio-as-tabs [data-testid="stRadio"] label:has(input:checked) {
+        background: #2c5282 !important;
+        color: #fff !important;
+        font-weight: 600;
+        border-color: #14365c;
+      }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.title("📊 FHI Datautforsker")
-st.markdown(
-    '<div class="small-muted">Interaktiv visualisering av FHI Statistikk Open API.</div>',
-    unsafe_allow_html=True,
-)
+# Tittel rendres i Streamlits header via CSS — se [data-testid="stHeader"]::before
 
-# === Top: kilde + tabell — fremtredende ===
+# === Datakilder som faner (radio styled som tabs) ===
 try:
     kilder = get_kilder()
 except Exception as e:
     st.error(f"Kunne ikke hente datakilder: {e}")
     st.stop()
 
-st.markdown('<div class="dataset-card">', unsafe_allow_html=True)
-top_c1, top_c2 = st.columns([1, 2.2])
-with top_c1:
-    kilde_map = {f"{k['title']} ({k['id']})": k["id"] for k in kilder}
-    kilde_label = st.selectbox("📚 Datakilde", list(kilde_map.keys()), index=0)
-    kilde_id = kilde_map[kilde_label]
+kilde_options = [k["id"] for k in kilder]
+kilde_label_map = {k["id"]: f"{k['title']} ({k['id']})" for k in kilder}
+
+st.markdown('<div class="radio-as-tabs">', unsafe_allow_html=True)
+kilde_id = st.radio(
+    "Datakilde",
+    options=kilde_options,
+    format_func=lambda k: kilde_label_map[k],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="aktiv_kilde",
+)
+st.markdown('</div>', unsafe_allow_html=True)
 
 try:
     tabeller = get_tabeller(kilde_id)
@@ -430,15 +485,37 @@ if not tabeller:
     st.warning("Ingen tabeller tilgjengelig for denne kilden.")
     st.stop()
 
-with top_c2:
-    tabell_sok = st.text_input("🔍 Søk i tabeller", "", placeholder="Skriv for å filtrere…")
-    filt = [t for t in tabeller if tabell_sok.lower() in t["title"].lower()]
-    if not filt:
-        st.warning("Ingen treff på søket.")
-        st.stop()
-    tabell_map = {f"{t['title']} (id {t['tableId']})": t["tableId"] for t in filt}
-    tabell_label = st.selectbox(f"📋 Tabell ({len(filt)} av {len(tabeller)})", list(tabell_map.keys()))
-    tabell_id = tabell_map[tabell_label]
+# Søk + tabell-tabs
+sok_c, info_c = st.columns([3, 1])
+with sok_c:
+    tabell_sok = st.text_input(
+        "🔍 Søk i tabeller", "", placeholder="Skriv for å filtrere tabellnavn…",
+        key=f"sok_{kilde_id}", label_visibility="collapsed",
+    )
+filt = [t for t in tabeller if tabell_sok.lower() in t["title"].lower()]
+with info_c:
+    st.caption(f"📋 {len(filt)} av {len(tabeller)} tabeller")
+if not filt:
+    st.warning("Ingen treff på søket.")
+    st.stop()
+
+tabell_options = [t["tableId"] for t in filt]
+tabell_label_map = {t["tableId"]: f"{t['title']} (#{t['tableId']})" for t in filt}
+
+# Hold styr på valgt tabell per kilde, men reset hvis ikke i filtrert liste
+tabell_state_key = f"aktiv_tabell_{kilde_id}"
+if (st.session_state.get(tabell_state_key) not in tabell_options):
+    st.session_state[tabell_state_key] = tabell_options[0]
+
+st.markdown('<div class="radio-as-tabs">', unsafe_allow_html=True)
+tabell_id = st.radio(
+    "Tabell",
+    options=tabell_options,
+    format_func=lambda t: tabell_label_map[t],
+    horizontal=True,
+    label_visibility="collapsed",
+    key=tabell_state_key,
+)
 st.markdown('</div>', unsafe_allow_html=True)
 
 try:
@@ -447,157 +524,135 @@ except Exception as e:
     st.error(f"Kunne ikke hente dimensjoner: {e}")
     st.stop()
 
-# === Sidebar: bare filtre ===
+# === Sidebar: én global form for alle filtre ===
+# Tre-dims samles inn etter form-submit (st.button kan ikke ligge i form)
+tree_dims_to_commit: list[tuple[str, int, list[dict]]] = []
+
 with st.sidebar:
-    sb_c1, sb_c2 = st.columns([3, 2])
-    sb_c1.markdown("### 🎚️ Filtre")
-    if sb_c2.button("↺ Nullstill", help="Tilbake til smarte standardvalg for alle filtre",
-                     key=f"reset_{tabell_id}"):
-        # Slett all dim-state for denne tabellen (begge prefikser)
-        for k in [k for k in st.session_state.keys()
-                  if k.startswith(f"dim_v2_{tabell_id}_") or k.startswith(f"dim_{tabell_id}_")]:
-            del st.session_state[k]
-        st.rerun()
-    st.caption(f"{len(dim_data['dimensions'])} dimensjoner i denne tabellen")
+    with st.form(key=f"filters_{tabell_id}", border=False, clear_on_submit=False):
+        bc1, bc2 = st.columns(2)
+        apply_clicked = bc1.form_submit_button(
+            "✓ Bruk valg", type="primary", use_container_width=True,
+        )
+        nullstill_clicked = bc2.form_submit_button(
+            "↺ Nullstill", use_container_width=True,
+            help="Tilbake til smarte standardvalg for alle filtre",
+        )
+        st.caption(f"{len(dim_data['dimensions'])} dimensjoner")
 
-    valgte_per_dim: dict[str, list[str]] = {}
-    dim_meta: list[dict] = []  # for hovedområde
+        for dim in dim_data["dimensions"]:
+            kode = dim["code"]
+            lbl = dim["label"]
+            flat = flat_kategorier(dim["categories"])
+            if not flat:
+                continue
+            viste_labels = [format_label(*item) for item in flat]
+            verdi_til_label = {v: l for v, l, _ in flat}
+            label_til_verdi = {format_label(v, l, d): v for v, l, d in flat}
+            depth_per_v = {v: d for v, l, d in flat}
+            all_values = [v for v, l, d in flat]
 
-    for dim in dim_data["dimensions"]:
-        kode = dim["code"]
-        lbl = dim["label"]
-        flat = flat_kategorier(dim["categories"])
-        if not flat:
-            continue
-        viste_labels = [format_label(*item) for item in flat]
-        verdi_til_label = {v: l for v, l, _ in flat}
-        label_til_verdi = {format_label(v, l, d): v for v, l, d in flat}
-        depth_per_v = {v: d for v, l, d in flat}
-        all_values = [v for v, l, d in flat]
+            state_key = f"dim_v2_{tabell_id}_{kode}"
+            if state_key not in st.session_state:
+                default_labels = smart_default(lbl, kode, flat, viste_labels)
+                st.session_state[state_key] = [label_til_verdi[lab] for lab in default_labels]
+            else:
+                st.session_state[state_key] = [
+                    v for v in st.session_state[state_key] if v in label_til_verdi.values()
+                ]
 
-        # Versjonsprefiks (`v2_`) — gammel state fra før refaktor lagret labels
-        # i stedet for verdier; bump versjon for å invalidere stale data.
-        state_key = f"dim_v2_{tabell_id}_{kode}"
-        if state_key not in st.session_state:
-            default_labels = smart_default(lbl, kode, flat, viste_labels)
-            st.session_state[state_key] = [label_til_verdi[lab] for lab in default_labels]
-        else:
-            # Sikkerhetsnett: drop verdier som ikke matcher kjente verdier (etter dim-bytte etc.)
-            st.session_state[state_key] = [v for v in st.session_state[state_key] if v in label_til_verdi.values()]
+            is_time = er_tids_dim(lbl, kode) and len(all_values) > 4
+            is_tree = er_hierarkisk(flat) and len(flat) > 8
 
-        # Hva slags widget passer best?
-        is_time = er_tids_dim(lbl, kode) and len(all_values) > 4
-        is_tree = er_hierarkisk(flat) and len(flat) > 8
+            n_valgt = len(st.session_state[state_key])
+            er_maltall = "måltall" in lbl.lower() or "maltall" in lbl.lower() or "measure" in kode.lower()
+            utvidet = (is_tree or is_time or len(all_values) <= 12) and not er_maltall
 
-        n_valgt = len(st.session_state[state_key])
-        # Heuristikk for åpen/kollaps:
-        # - Hovedvariabler (tre, slider, lite multi-select): åpne
-        # - Måltall (ofte 1 valgt): kollapset
-        # - Store flate multi-select uten hierarki: kollapset
-        er_maltall = "måltall" in lbl.lower() or "maltall" in lbl.lower() or "measure" in kode.lower()
-        utvidet = (is_tree or is_time or len(all_values) <= 12) and not er_maltall
-
-        with st.expander(f"**{lbl}** — {n_valgt}/{len(viste_labels)}", expanded=utvidet):
-            if is_time:
-                # ---- Fra–til select_slider ----
-                # Filtrer ut "TOTALT/Alle"-rotnode hvis den finnes (depth 0 + barn)
-                ts_values = (
-                    [v for v, l, d in flat if d > 0]
-                    if er_hierarkisk(flat) else all_values
-                )
-                ts_labels = {v: l for v, l, d in flat}
-                # Default-range fra eksisterende state
-                eksisterende = [v for v in st.session_state[state_key] if v in ts_values]
-                if eksisterende:
-                    start_def, end_def = eksisterende[0], eksisterende[-1]
-                else:
-                    start_def, end_def = ts_values[max(0, len(ts_values) - 20)], ts_values[-1]
-
-                start, end = st.select_slider(
-                    "Periode",
-                    options=ts_values,
-                    value=(start_def, end_def),
-                    format_func=lambda v: ts_labels.get(v, v),
-                    key=f"slider_{state_key}",
-                    label_visibility="collapsed",
-                )
-                i, j = ts_values.index(start), ts_values.index(end)
-                st.session_state[state_key] = ts_values[i:j + 1]
-                st.caption(f"📅 {ts_labels.get(start)} → {ts_labels.get(end)}  ({j - i + 1} perioder)")
-
-            elif is_tree:
-                # ---- Hierarkisk tre-velger ----
-                # Counter trick: når en knapp endrer state må tre-komponenten remountes
-                # for at `checked`-prop skal tas i bruk på nytt
-                ctr_key = f"ctr_{state_key}"
-                if ctr_key not in st.session_state:
-                    st.session_state[ctr_key] = 0
-
-                def _reset_tre(sk, ck, ny):
-                    st.session_state[sk] = ny
-                    st.session_state[ck] += 1
-
-                c1, c2, c3 = st.columns([1, 1, 1])
-                c1.button("Alle", key=f"all_{state_key}",
-                          on_click=_reset_tre, args=(state_key, ctr_key, all_values))
-                c2.button("Tøm", key=f"clr_{state_key}",
-                          on_click=_reset_tre, args=(state_key, ctr_key, []))
-                topp = [v for v, l, d in flat if d == 1] or [v for v, l, d in flat if d == 0]
-                c3.button("Topp", key=f"top_{state_key}",
-                          on_click=_reset_tre, args=(state_key, ctr_key, topp),
-                          help="Velg første nivå (typisk hovedkategorier)")
-
-                tre = bygg_tre(dim["categories"])
-                ctr_val = st.session_state[ctr_key]
-                form_key = f"treeform_{state_key}_{ctr_val}"
-                with st.form(key=form_key, border=False, clear_on_submit=False):
+            with st.expander(f"**{lbl}** — {n_valgt}/{len(viste_labels)}", expanded=utvidet):
+                if is_time:
+                    ts_values = (
+                        [v for v, l, d in flat if d > 0]
+                        if er_hierarkisk(flat) else all_values
+                    )
+                    ts_labels = {v: l for v, l, d in flat}
+                    eksisterende = [v for v in st.session_state[state_key] if v in ts_values]
+                    if eksisterende:
+                        start_def, end_def = eksisterende[0], eksisterende[-1]
+                    else:
+                        start_def, end_def = ts_values[max(0, len(ts_values) - 20)], ts_values[-1]
+                    start, end = st.select_slider(
+                        "Periode",
+                        options=ts_values,
+                        value=(start_def, end_def),
+                        format_func=lambda v: ts_labels.get(v, v),
+                        key=f"slider_{state_key}",
+                        label_visibility="collapsed",
+                    )
+                    i, j = ts_values.index(start), ts_values.index(end)
+                    st.session_state[state_key] = ts_values[i:j + 1]
+                    st.caption(f"📅 {ts_labels.get(start)} → {ts_labels.get(end)}  ({j - i + 1} perioder)")
+                elif is_tree:
+                    ctr_key = f"ctr_{state_key}"
+                    if ctr_key not in st.session_state:
+                        st.session_state[ctr_key] = 0
+                    tre = bygg_tre(dim["categories"])
+                    ctr_val = st.session_state[ctr_key]
                     render_tre_native(
                         tre,
                         state_key=state_key,
                         ctr=ctr_val,
                         default_open_depth=1,
                     )
-                    submitted = st.form_submit_button(
-                        "✓ Bruk valg",
-                        use_container_width=True,
-                        type="primary",
+                    tree_dims_to_commit.append((state_key, ctr_val, tre))
+                    st.caption(f"Valgt: {n_valgt} av {len(all_values)}")
+                else:
+                    st.multiselect(
+                        "Verdier",
+                        options=all_values,
+                        format_func=lambda v, vl=verdi_til_label, dp=depth_per_v: format_label(v, vl[v], dp[v]),
+                        key=state_key,
+                        label_visibility="collapsed",
                     )
-                if submitted:
-                    valgte = [
-                        v for v, ck, _ in _walk_tre(tre, state_key, ctr_val)
-                        if st.session_state.get(ck)
-                    ]
-                    st.session_state[state_key] = valgte
-                    st.rerun()
-                st.caption(f"Valgt: {len(st.session_state.get(state_key, []))} av {len(all_values)}")
 
-            else:
-                # ---- Vanlig multiselect ----
-                c1, c2, c3 = st.columns([1, 1, 1])
-                c1.button("Alle", key=f"all_{state_key}",
-                          on_click=_set_state, args=(state_key, all_values))
-                c2.button("Tøm", key=f"clr_{state_key}",
-                          on_click=_set_state, args=(state_key, []))
-                topp = [v for v, l, d in flat if d == 0]
-                if any(d > 0 for v, l, d in flat):
-                    c3.button("Topp", key=f"top_{state_key}",
-                              on_click=_set_state, args=(state_key, topp))
+    # === Etter form-submit: håndter knappene ===
+    if nullstill_clicked:
+        prefixes = (
+            f"dim_v2_{tabell_id}_",
+            f"slider_dim_v2_{tabell_id}_",
+            f"ctr_dim_v2_{tabell_id}_",
+            f"treecb__dim_v2_{tabell_id}_",
+        )
+        for k in list(st.session_state.keys()):
+            if any(k.startswith(p) for p in prefixes):
+                del st.session_state[k]
+        st.rerun()
+    elif apply_clicked:
+        for state_key, ctr_val, tre in tree_dims_to_commit:
+            valgte = [
+                v for v, ck, _ in _walk_tre(tre, state_key, ctr_val)
+                if st.session_state.get(ck)
+            ]
+            st.session_state[state_key] = valgte
+        st.rerun()
 
-                st.multiselect(
-                    "Verdier",
-                    options=all_values,
-                    format_func=lambda v: format_label(v, verdi_til_label[v], depth_per_v[v]),
-                    key=state_key,
-                    label_visibility="collapsed",
-                )
-
-        valgte_per_dim[kode] = list(st.session_state[state_key])
-        dim_meta.append({
-            "kode": kode,
-            "label": lbl,
-            "antall_valgt": len(valgte_per_dim[kode]),
-            "valgte_labels": [verdi_til_label.get(v, v) for v in valgte_per_dim[kode]],
-        })
+# === Bygg valgte_per_dim + meta fra committed state ===
+valgte_per_dim: dict[str, list[str]] = {}
+dim_meta: list[dict] = []
+for dim in dim_data["dimensions"]:
+    kode = dim["code"]
+    lbl = dim["label"]
+    flat = flat_kategorier(dim["categories"])
+    if not flat:
+        continue
+    verdi_til_label = {v: l for v, l, _ in flat}
+    state_key = f"dim_v2_{tabell_id}_{kode}"
+    valgte_per_dim[kode] = list(st.session_state.get(state_key, []))
+    dim_meta.append({
+        "kode": kode,
+        "label": lbl,
+        "antall_valgt": len(valgte_per_dim[kode]),
+        "valgte_labels": [verdi_til_label.get(v, v) for v in valgte_per_dim[kode]],
+    })
 
 # --- Hovedområde ---
 
