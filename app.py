@@ -338,16 +338,25 @@ st.markdown(
       [data-testid="stHeader"] [data-testid="stToolbar"] svg,
       [data-testid="stHeader"] button { color: #fff !important; }
 
-      /* Padding under stHeader så øverste innhold ikke ligger under den */
-      [data-testid="stAppViewContainer"] > section.main > div.block-container {
-        padding-top: 4.5rem !important;
+      /* Padding under stHeader så øverste innhold ikke ligger under den.
+         Multiple selektorer fordi Streamlit-versjonene varierer i DOM-struktur. */
+      [data-testid="stAppViewContainer"] > section.main > div.block-container,
+      [data-testid="stMain"] .block-container,
+      section.main .block-container,
+      .main .block-container,
+      .block-container {
+        padding-top: 6rem !important;
       }
-      [data-testid="stSidebar"] > div:first-child { padding-top: 4.5rem !important; }
+      [data-testid="stSidebar"] > div:first-child {
+        padding-top: 5rem !important;
+        align-items: stretch;
+      }
 
-      /* Venstre sidebar: kompakt kilde→tabell-tre */
+      /* Venstre sidebar: kompakt kilde→tabell-tre, venstrejustert */
+      [data-testid="stSidebar"] .stButton { width: 100%; }
       [data-testid="stSidebar"] .stButton button {
-        text-align: left;
-        justify-content: flex-start;
+        text-align: left !important;
+        justify-content: flex-start !important;
         white-space: normal;
         height: auto;
         padding: 4px 8px;
@@ -356,19 +365,25 @@ st.markdown(
         background: transparent;
         color: inherit;
         border: 1px solid transparent;
+        display: flex;
+      }
+      [data-testid="stSidebar"] .stButton button > div,
+      [data-testid="stSidebar"] .stButton button p {
+        text-align: left !important;
+        width: 100%;
+        justify-content: flex-start !important;
+        margin: 0;
       }
       [data-testid="stSidebar"] .stButton button:hover {
         background: rgba(74, 123, 168, 0.18);
         border-color: rgba(74, 123, 168, 0.35);
       }
-      /* Aktiv kilde/tabell-knapp — bruk type=primary fra Streamlit */
       [data-testid="stSidebar"] .stButton button[kind="primary"] {
         background: #2c5282 !important;
         color: #fff !important;
         font-weight: 600;
         border-color: #14365c;
       }
-      /* Innrykk for tabell-knapper (under kilde) */
       [data-testid="stSidebar"] .tabell-rad .stButton button {
         padding-left: 1.3rem;
         font-size: 0.78rem;
@@ -404,7 +419,19 @@ except Exception as e:
     st.error(f"Kunne ikke hente datakilder: {e}")
     st.stop()
 
-# === Venstre sidebar: kilde→tabell-tre ===
+# Default-tabell: LMR (Legemiddelregisteret), tabell 825 — gruppert per ATC.
+# Velges automatisk ved første lasting hvis brukeren ikke har valgt noe ennå.
+DEFAULT_KILDE = "LMR"
+DEFAULT_TABELL = 825
+
+if not st.session_state.get("aktiv_kilde"):
+    if any(k["id"] == DEFAULT_KILDE for k in kilder):
+        st.session_state["aktiv_kilde"] = DEFAULT_KILDE
+        st.session_state["aktiv_tabell"] = DEFAULT_TABELL
+    else:
+        st.session_state["aktiv_kilde"] = kilder[0]["id"]
+
+# === Venstre sidebar: kilde→tabell-tre, alle kilder kollapset som default ===
 with st.sidebar:
     sb_sok = st.text_input(
         "🔍 Søk i kilder/tabeller", "",
@@ -413,9 +440,10 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    # Hvilken kilde er åpnet i treet (kan avvike fra aktiv)
+    # open_source = None betyr at ingen kilde er åpnet. Søk overstyrer
+    # (åpner alle treff). Klikk på kilde toggler open/close.
     if "open_source" not in st.session_state:
-        st.session_state["open_source"] = st.session_state.get("aktiv_kilde") or kilder[0]["id"]
+        st.session_state["open_source"] = None
 
     for k in kilder:
         sid = k["id"]
@@ -429,7 +457,11 @@ with st.sidebar:
             use_container_width=True,
             type="primary" if is_active_src else "secondary",
         ):
-            st.session_state["open_source"] = sid
+            # Toggle: hvis allerede åpen → lukk, ellers åpne
+            if st.session_state["open_source"] == sid:
+                st.session_state["open_source"] = None
+            else:
+                st.session_state["open_source"] = sid
             st.rerun()
 
         if is_open:
@@ -456,14 +488,13 @@ with st.sidebar:
                 ):
                     st.session_state["aktiv_kilde"] = sid
                     st.session_state["aktiv_tabell"] = tid
-                    st.session_state["open_source"] = sid
                     st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
-# Aktiv kilde + tabell — første gang: bruk første kilde + første tabell
-kilde_id = st.session_state.get("aktiv_kilde") or kilder[0]["id"]
-st.session_state["aktiv_kilde"] = kilde_id
+kilde_id = st.session_state["aktiv_kilde"]
 
+# Sikre at aktiv_tabell faktisk eksisterer i valgt kilde — fall tilbake til
+# første tilgjengelige om ikke
 if not st.session_state.get("aktiv_tabell"):
     try:
         first_tabs = get_tabeller(kilde_id)
